@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using e_liqueur.Models;
 using Microsoft.EntityFrameworkCore;
 using e_liqueur.Classes.Requests;
+using Microsoft.AspNetCore.Http;
 
 namespace e_liqueur.Controllers
 {
@@ -26,14 +27,15 @@ namespace e_liqueur.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Store>>> GetAllStores()
         {
-            var stores = _context.Stores
+            var stores = await _context.Stores
                 .Include(i => i.Stock)
+                .ThenInclude(s => s.StockItem)
                 .OrderBy(s => s.Id)
-                .ToArray();
+                .ToArrayAsync();
 
             if (stores.Length == 0)
             {
-                return NotFound();
+                return NotFound(new { message = "No stores found" });
             }
 
             return stores;
@@ -46,7 +48,7 @@ namespace e_liqueur.Controllers
 
             if (store == null)
             {
-                return NotFound();
+                return NotFound(new { message = "Store not found" });
             }
 
             return store;
@@ -66,53 +68,47 @@ namespace e_liqueur.Controllers
         }
         
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateStore(long id, Store store)
+        public async Task<IActionResult> UpdateStore(long id, UpdateStoreRequest storeRequest)
         {
-            if (id != store.Id)
-            {
-                return BadRequest();
-            }
+            var store = await _context.Stores.FindAsync(id);
+            if (store == null)
+                return NotFound(new { message = "Store not found" });
+            
+            store.Name = storeRequest.Name;
 
             _context.Entry(store).State = EntityState.Modified;
-
+            
             try
             {
                 await _context.SaveChangesAsync();
             }
-            catch (DbUpdateConcurrencyException)
+            catch (DbUpdateConcurrencyException ex)
             {
-                if (!StoreExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                _logger.LogError(ex.ToString());
+                return StatusCode(StatusCodes.Status500InternalServerError, 
+                    "Database update failure when changing store details");
             }
 
-            return NoContent();
+            return Ok(new { message = "Store item updated successfully" });
         }
 
         [HttpPut("{id}/add-stock")]
-        public async Task<ActionResult<Store>> AddStock(long id, PostStockItemRequest stockItemRequest)
+        public async Task<ActionResult<Store>> AddStock(long id, PostStoreStockItemRequest stockItemRequest)
         {
             var store = await _context.Stores.FindAsync(id);
-            var stockItem = await _context.Stock.SingleOrDefaultAsync(s => s.Name == stockItemRequest.StockItem);
+            var stockItem = await _context.Stock.FirstOrDefaultAsync(s => s.Name == stockItemRequest.StockItem);
+            
+            if (store == null)
+                return NotFound(new { message = "Store not found" });
 
-            if (store == null || stockItem == null)
-            {
-                return NotFound();
-            }
+            if (stockItem == null)
+                return NotFound(new {message = "Stock item not found"});
 
             store.Stock.Add(
                 new StoreStockItem
                 {
                     Quantity = stockItemRequest.Quantity, 
-                    StockItem = new StockItem
-                    {
-                        Name = stockItem.Name
-                    }
+                    StockItem = stockItem
                 });
             
             try
@@ -121,10 +117,12 @@ namespace e_liqueur.Controllers
             }
             catch (DbUpdateConcurrencyException ex)
             {
-                throw ex;
+                _logger.LogError(ex.ToString());
+                return StatusCode(StatusCodes.Status500InternalServerError, 
+                    "Database update failure when adding stock to store");
             }
 
-            return NoContent();
+            return Ok(new { message = "Stock added to store" });
         }
 
         [HttpDelete("{id}")]
@@ -132,19 +130,12 @@ namespace e_liqueur.Controllers
         {
             var store = await _context.Stores.FindAsync(id);
             if (store == null)
-            {
-                return NotFound();
-            }
+                return NotFound(new { message = "Store not found" });
 
             _context.Stores.Remove(store);
             await _context.SaveChangesAsync();
 
             return store;
-        }
-
-        private bool StoreExists(long id)
-        {
-            return _context.Stores.Any(s => s.Id == id);
         }
     }
 }

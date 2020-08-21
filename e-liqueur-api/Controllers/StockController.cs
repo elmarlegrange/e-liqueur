@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using e_liqueur.Models;
+using e_liqueur.Classes.Requests;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace e_liqueur.Controllers
@@ -25,13 +27,13 @@ namespace e_liqueur.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<StockItem>>> GetStock()
         {
-            var stock = _context.Stock
+            var stock = await _context.Stock
                 .OrderBy(s => s.Id)
-                .ToArray();
-            
+                .ToArrayAsync();
+
             if (stock.Length == 0)
             {
-                return NotFound();
+                return NotFound(new { message = "No stock found" });
             }
 
             return stock;
@@ -44,7 +46,7 @@ namespace e_liqueur.Controllers
 
             if (stockItem == null)
             {
-                return NotFound();
+                return NotFound(new { message = "Stock item not found" });
             }
 
             return stockItem;
@@ -64,32 +66,29 @@ namespace e_liqueur.Controllers
         }
         
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateStock(long id, StockItem stockItem)
+        public async Task<IActionResult> UpdateStock(long id, UpdateStockItemRequest stockItemRequest)
         {
-            if (id != stockItem.Id)
-            {
-                return BadRequest();
-            }
+            var stock = await _context.Stock.FindAsync(id);
+            
+            if (stock == null)
+                return NotFound(new {message = "Stock item not found"});
+            
+            stock.Name = stockItemRequest.Name;
 
-            _context.Entry(stockItem).State = EntityState.Modified;
+            _context.Entry(stock).State = EntityState.Modified;
 
             try
             {
                 await _context.SaveChangesAsync();
             }
-            catch (DbUpdateConcurrencyException)
+            catch (DbUpdateConcurrencyException ex)
             {
-                if (!StockItemExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                _logger.LogError(ex.ToString());
+                return StatusCode(StatusCodes.Status500InternalServerError, 
+                    "Database update failure when changing stock details");
             }
 
-            return NoContent();
+            return Ok(new { message = "Stock item updated successfully" });
         }
         
         [HttpDelete("{id}")]
@@ -104,12 +103,7 @@ namespace e_liqueur.Controllers
             _context.Stock.Remove(stockItem);
             await _context.SaveChangesAsync();
 
-            return stockItem;
-        }
-        
-        private bool StockItemExists(long id)
-        {
-            return _context.Stock.Any(s => s.Id == id);
+            return Ok(new { message = "Stock item deleted successfully" });
         }
     }
 }

@@ -9,7 +9,7 @@ using e_liqueur.Models;
 namespace e_liqueur.Migrations
 {
     [DbContext(typeof(LiquorContext))]
-    [Migration("20200821094433_InitialCreate")]
+    [Migration("20200821131934_InitialCreate")]
     partial class InitialCreate
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
